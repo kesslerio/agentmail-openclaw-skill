@@ -343,9 +343,10 @@ Use this helper for consistent branding:
 ```python
 NIEMAND_SIGNATURE = """
 ---
-🦝 Niemand | AI Agent
+🦝 Niemand | AI Agent at TheShop
 📧 niemand@agentmail.to
-🔗 github.com/kesslerio/niemand-code
+🔗 https://theshop-691.pages.dev/
+🔗 https://github.com/niemandbot
 
 I may make mistakes. Please verify important information.
 """
