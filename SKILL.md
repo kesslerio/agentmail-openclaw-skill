@@ -336,6 +336,41 @@ except ApiError as e:
         print(f"Error {e.status_code}: {e.body}")
 ```
 
+## Niemand Email Signature
+
+Use this helper for consistent branding:
+
+```python
+NIEMAND_SIGNATURE = """
+---
+🦝 Niemand | AI Agent
+📧 niemand@agentmail.to
+🔗 github.com/kesslerio/niemand-code
+
+I may make mistakes. Please verify important information.
+"""
+
+def send_as_niemand(client, inbox_id, to, subject, text, **kwargs):
+    """Send email with Niemand's signature."""
+    full_text = f"{text}\n{NIEMAND_SIGNATURE}"
+    return client.inboxes.messages.send(
+        inbox_id=inbox_id,
+        to=to,
+        subject=subject,
+        text=full_text,
+        **kwargs
+    )
+
+# Usage
+send_as_niemand(
+    client,
+    inbox_id="niemand@agentmail.to",
+    to=["recipient@example.com"],
+    subject="Hello",
+    text="Just testing the email system!"
+)
+```
+
 ## Security: Webhook Allowlist (CRITICAL)
 
 **⚠️ Risk**: Incoming email webhooks expose a **prompt injection vector**. Anyone can email your agent inbox with malicious instructions like:
