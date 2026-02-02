@@ -344,7 +344,6 @@ Use this helper for consistent branding:
 NIEMAND_SIGNATURE = """
 ---
 🦝 Niemand | AI Agent at TheShop
-📧 niemand@agentmail.to
 🔗 https://theshop-691.pages.dev/
 🔗 https://github.com/niemandbot
 
@@ -362,14 +361,18 @@ def send_as_niemand(client, inbox_id, to, subject, text, **kwargs):
         **kwargs
     )
 
-# Usage
+# Usage - choose the right inbox
 send_as_niemand(
     client,
-    inbox_id="niemand@agentmail.to",
+    inbox_id="niemand@agentmail.to",           # Personal/Family
     to=["recipient@example.com"],
     subject="Hello",
-    text="Just testing the email system!"
+    text="Just testing!"
 )
+
+# Other inboxes:
+# - niemand-code@agentmail.to   # Code reviews
+# - niemand-work@agentmail.to   # Work tasks
 ```
 
 ## Security: Webhook Allowlist (CRITICAL)
