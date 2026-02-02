@@ -1,0 +1,544 @@
+#!/usr/bin/env python3
+"""AgentMail CLI wrapper for common operations."""
+
+import argparse
+import json
+import os
+import sys
+from datetime import datetime, timedelta
+
+try:
+    from agentmail import AgentMail
+    from agentmail.core.api_error import ApiError
+except ImportError:
+    print("Error: agentmail package not installed. Run: pip install agentmail", file=sys.stderr)
+    sys.exit(1)
+
+
+def get_client():
+    """Get authenticated AgentMail client."""
+    api_key = os.environ.get("AGENTMAIL_API_KEY")
+    if not api_key:
+        print("Error: AGENTMAIL_API_KEY environment variable not set", file=sys.stderr)
+        sys.exit(1)
+    return AgentMail(api_key=api_key)
+
+
+def format_output(data, format_type="text"):
+    """Format output as text or JSON."""
+    if format_type == "json":
+        if hasattr(data, "__dict__"):
+            print(json.dumps(data.__dict__, indent=2, default=str))
+        else:
+            print(json.dumps(data, indent=2, default=str))
+    else:
+        print(data)
+
+
+# --- Inbox Commands ---
+
+def cmd_inboxes_list(args):
+    """List all inboxes."""
+    client = get_client()
+    response = client.inboxes.list(limit=args.limit)
+    
+    if args.json:
+        items = [{"id": i.id, "address": i.address, "display_name": getattr(i, "display_name", None)} 
+                 for i in response]
+        print(json.dumps(items, indent=2))
+    else:
+        for inbox in response:
+            name = getattr(inbox, "display_name", "") or ""
+            print(f"{inbox.id}\t{inbox.address}\t{name}")
+
+
+def cmd_inboxes_create(args):
+    """Create a new inbox."""
+    client = get_client()
+    
+    kwargs = {}
+    if args.username:
+        kwargs["username"] = args.username
+    if args.domain:
+        kwargs["domain"] = args.domain
+    if args.display_name:
+        kwargs["display_name"] = args.display_name
+    
+    inbox = client.inboxes.create(**kwargs) if kwargs else client.inboxes.create()
+    
+    if args.json:
+        print(json.dumps({"id": inbox.id, "address": inbox.address}, indent=2))
+    else:
+        print(f"Created inbox: {inbox.address} (ID: {inbox.id})")
+
+
+def cmd_inboxes_get(args):
+    """Get inbox details."""
+    client = get_client()
+    inbox = client.inboxes.get(inbox_id=args.inbox_id)
+    
+    if args.json:
+        print(json.dumps({"id": inbox.id, "address": inbox.address, 
+                         "display_name": getattr(inbox, "display_name", None)}, indent=2))
+    else:
+        print(f"ID: {inbox.id}")
+        print(f"Address: {inbox.address}")
+        if hasattr(inbox, "display_name") and inbox.display_name:
+            print(f"Display Name: {inbox.display_name}")
+
+
+def cmd_inboxes_delete(args):
+    """Delete an inbox."""
+    client = get_client()
+    client.inboxes.delete(inbox_id=args.inbox_id)
+    print(f"Deleted inbox: {args.inbox_id}")
+
+
+# --- Message Commands ---
+
+def cmd_messages_list(args):
+    """List messages in an inbox."""
+    client = get_client()
+    
+    kwargs = {"inbox_id": args.inbox_id}
+    if args.limit:
+        kwargs["limit"] = args.limit
+    if args.labels:
+        kwargs["labels"] = args.labels.split(",")
+    
+    response = client.inboxes.messages.list(**kwargs)
+    
+    if args.json:
+        items = []
+        for msg in response:
+            items.append({
+                "id": msg.id,
+                "from": getattr(msg, "from_", None) or getattr(msg, "from", ""),
+                "to": getattr(msg, "to", []),
+                "subject": getattr(msg, "subject", ""),
+                "timestamp": str(getattr(msg, "timestamp", ""))
+            })
+        print(json.dumps(items, indent=2))
+    else:
+        for msg in response:
+            from_addr = getattr(msg, "from_", None) or getattr(msg, "from", "unknown")
+            subject = getattr(msg, "subject", "(no subject)")
+            print(f"{msg.id}\t{from_addr}\t{subject}")
+
+
+def cmd_messages_get(args):
+    """Get a specific message."""
+    client = get_client()
+    msg = client.inboxes.messages.get(inbox_id=args.inbox_id, message_id=args.message_id)
+    
+    if args.json:
+        data = {
+            "id": msg.id,
+            "from": getattr(msg, "from_", None) or getattr(msg, "from", ""),
+            "to": getattr(msg, "to", []),
+            "cc": getattr(msg, "cc", []),
+            "subject": getattr(msg, "subject", ""),
+            "text": getattr(msg, "text", ""),
+            "html": getattr(msg, "html", ""),
+            "timestamp": str(getattr(msg, "timestamp", ""))
+        }
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"From: {getattr(msg, 'from_', None) or getattr(msg, 'from', '')}")
+        print(f"To: {', '.join(getattr(msg, 'to', []))}")
+        if getattr(msg, "cc", []):
+            print(f"Cc: {', '.join(msg.cc)}")
+        print(f"Subject: {getattr(msg, 'subject', '')}")
+        print(f"Date: {getattr(msg, 'timestamp', '')}")
+        print("---")
+        print(getattr(msg, "text", "") or "(no text body)")
+
+
+def cmd_send(args):
+    """Send a new message."""
+    client = get_client()
+    
+    kwargs = {
+        "inbox_id": args.inbox_id,
+        "to": args.to.split(","),
+        "subject": args.subject
+    }
+    
+    if args.text:
+        kwargs["text"] = args.text
+    if args.html:
+        kwargs["html"] = args.html
+    if args.cc:
+        kwargs["cc"] = args.cc.split(",")
+    if args.bcc:
+        kwargs["bcc"] = args.bcc.split(",")
+    
+    response = client.inboxes.messages.send(**kwargs)
+    
+    if args.json:
+        print(json.dumps({"message_id": response.message_id, "thread_id": response.thread_id}, indent=2))
+    else:
+        print(f"Sent! Message ID: {response.message_id}")
+
+
+def cmd_reply(args):
+    """Reply to a message."""
+    client = get_client()
+    
+    kwargs = {
+        "inbox_id": args.inbox_id,
+        "message_id": args.message_id
+    }
+    
+    if args.text:
+        kwargs["text"] = args.text
+    if args.html:
+        kwargs["html"] = args.html
+    if args.reply_all:
+        kwargs["reply_all"] = True
+    
+    response = client.inboxes.messages.reply(**kwargs)
+    
+    if args.json:
+        print(json.dumps({"message_id": response.message_id}, indent=2))
+    else:
+        print(f"Replied! Message ID: {response.message_id}")
+
+
+def cmd_forward(args):
+    """Forward a message."""
+    client = get_client()
+    
+    response = client.inboxes.messages.forward(
+        inbox_id=args.inbox_id,
+        message_id=args.message_id,
+        to=args.to.split(","),
+        text=args.text
+    )
+    
+    if args.json:
+        print(json.dumps({"message_id": response.message_id}, indent=2))
+    else:
+        print(f"Forwarded! Message ID: {response.message_id}")
+
+
+# --- Thread Commands ---
+
+def cmd_threads_list(args):
+    """List threads in an inbox."""
+    client = get_client()
+    
+    kwargs = {"inbox_id": args.inbox_id}
+    if args.limit:
+        kwargs["limit"] = args.limit
+    
+    response = client.inboxes.threads.list(**kwargs)
+    
+    if args.json:
+        items = []
+        for thread in response:
+            items.append({
+                "id": thread.id,
+                "subject": getattr(thread, "subject", ""),
+                "message_count": getattr(thread, "message_count", 0)
+            })
+        print(json.dumps(items, indent=2))
+    else:
+        for thread in response:
+            subject = getattr(thread, "subject", "(no subject)")
+            count = getattr(thread, "message_count", "?")
+            print(f"{thread.id}\t{count} msgs\t{subject}")
+
+
+def cmd_threads_get(args):
+    """Get a specific thread with all messages."""
+    client = get_client()
+    thread = client.inboxes.threads.get(inbox_id=args.inbox_id, thread_id=args.thread_id)
+    
+    if args.json:
+        data = {
+            "id": thread.id,
+            "subject": getattr(thread, "subject", ""),
+            "messages": []
+        }
+        for msg in getattr(thread, "messages", []):
+            data["messages"].append({
+                "id": msg.id,
+                "from": getattr(msg, "from_", None) or getattr(msg, "from", ""),
+                "text": getattr(msg, "text", "")[:200]
+            })
+        print(json.dumps(data, indent=2))
+    else:
+        print(f"Thread: {getattr(thread, 'subject', '')}")
+        print(f"ID: {thread.id}")
+        print("---")
+        for msg in getattr(thread, "messages", []):
+            from_addr = getattr(msg, "from_", None) or getattr(msg, "from", "")
+            print(f"\nFrom: {from_addr}")
+            print(getattr(msg, "text", "")[:500])
+
+
+# --- Webhook Commands ---
+
+def cmd_webhooks_list(args):
+    """List webhooks."""
+    client = get_client()
+    response = client.webhooks.list()
+    
+    if args.json:
+        items = []
+        for wh in response:
+            items.append({
+                "id": wh.id,
+                "url": getattr(wh, "url", ""),
+                "event_types": getattr(wh, "event_types", [])
+            })
+        print(json.dumps(items, indent=2))
+    else:
+        for wh in response:
+            events = ", ".join(getattr(wh, "event_types", []))
+            print(f"{wh.id}\t{getattr(wh, 'url', '')}\t[{events}]")
+
+
+def cmd_webhooks_create(args):
+    """Create a webhook."""
+    client = get_client()
+    
+    webhook = client.webhooks.create(
+        url=args.url,
+        event_types=args.events.split(",")
+    )
+    
+    if args.json:
+        print(json.dumps({"id": webhook.id, "url": getattr(webhook, "url", "")}, indent=2))
+    else:
+        print(f"Created webhook: {webhook.id}")
+
+
+def cmd_webhooks_delete(args):
+    """Delete a webhook."""
+    client = get_client()
+    client.webhooks.delete(webhook_id=args.webhook_id)
+    print(f"Deleted webhook: {args.webhook_id}")
+
+
+# --- Pod Commands ---
+
+def cmd_pods_list(args):
+    """List pods."""
+    client = get_client()
+    response = client.pods.list()
+    
+    if args.json:
+        items = [{"id": p.id, "name": getattr(p, "name", "")} for p in response]
+        print(json.dumps(items, indent=2))
+    else:
+        for pod in response:
+            print(f"{pod.id}\t{getattr(pod, 'name', '')}")
+
+
+def cmd_pods_create(args):
+    """Create a pod."""
+    client = get_client()
+    
+    kwargs = {}
+    if args.name:
+        kwargs["name"] = args.name
+    
+    pod = client.pods.create(**kwargs)
+    
+    if args.json:
+        print(json.dumps({"id": pod.id, "name": getattr(pod, "name", "")}, indent=2))
+    else:
+        print(f"Created pod: {pod.id}")
+
+
+# --- Domain Commands ---
+
+def cmd_domains_list(args):
+    """List domains."""
+    client = get_client()
+    response = client.domains.list()
+    
+    if args.json:
+        items = [{"id": d.id, "domain": getattr(d, "domain", ""), 
+                 "verified": getattr(d, "verified", False)} for d in response]
+        print(json.dumps(items, indent=2))
+    else:
+        for domain in response:
+            verified = "✓" if getattr(domain, "verified", False) else "✗"
+            print(f"{domain.id}\t{getattr(domain, 'domain', '')}\t{verified}")
+
+
+def cmd_domains_create(args):
+    """Create/register a domain."""
+    client = get_client()
+    
+    domain = client.domains.create(
+        domain=args.domain,
+        feedback_enabled=args.feedback
+    )
+    
+    if args.json:
+        print(json.dumps({"id": domain.id, "domain": getattr(domain, "domain", "")}, indent=2))
+    else:
+        print(f"Created domain: {domain.id}")
+        print("Configure DNS records, then run: agentmail-cli domains verify --domain-id {domain.id}")
+
+
+def cmd_domains_verify(args):
+    """Verify domain DNS configuration."""
+    client = get_client()
+    client.domains.verify(domain_id=args.domain_id)
+    print(f"Domain {args.domain_id} verified!")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="AgentMail CLI")
+    parser.add_argument("--json", action="store_true", help="Output as JSON")
+    
+    subparsers = parser.add_subparsers(dest="command", help="Commands")
+    
+    # Inboxes
+    inbox_parser = subparsers.add_parser("inboxes", help="Inbox operations")
+    inbox_sub = inbox_parser.add_subparsers(dest="subcommand")
+    
+    inbox_list = inbox_sub.add_parser("list", help="List inboxes")
+    inbox_list.add_argument("--limit", type=int, default=50)
+    inbox_list.set_defaults(func=cmd_inboxes_list)
+    
+    inbox_create = inbox_sub.add_parser("create", help="Create inbox")
+    inbox_create.add_argument("--username", help="Username part of email")
+    inbox_create.add_argument("--domain", help="Domain (default: agentmail.to)")
+    inbox_create.add_argument("--display-name", help="Display name")
+    inbox_create.set_defaults(func=cmd_inboxes_create)
+    
+    inbox_get = inbox_sub.add_parser("get", help="Get inbox")
+    inbox_get.add_argument("--inbox-id", required=True)
+    inbox_get.set_defaults(func=cmd_inboxes_get)
+    
+    inbox_delete = inbox_sub.add_parser("delete", help="Delete inbox")
+    inbox_delete.add_argument("--inbox-id", required=True)
+    inbox_delete.set_defaults(func=cmd_inboxes_delete)
+    
+    # Messages
+    msg_parser = subparsers.add_parser("messages", help="Message operations")
+    msg_sub = msg_parser.add_subparsers(dest="subcommand")
+    
+    msg_list = msg_sub.add_parser("list", help="List messages")
+    msg_list.add_argument("--inbox-id", required=True)
+    msg_list.add_argument("--limit", type=int, default=50)
+    msg_list.add_argument("--labels", help="Comma-separated labels")
+    msg_list.set_defaults(func=cmd_messages_list)
+    
+    msg_get = msg_sub.add_parser("get", help="Get message")
+    msg_get.add_argument("--inbox-id", required=True)
+    msg_get.add_argument("--message-id", required=True)
+    msg_get.set_defaults(func=cmd_messages_get)
+    
+    # Send
+    send_parser = subparsers.add_parser("send", help="Send message")
+    send_parser.add_argument("--inbox-id", required=True)
+    send_parser.add_argument("--to", required=True, help="Comma-separated recipients")
+    send_parser.add_argument("--subject", required=True)
+    send_parser.add_argument("--text", help="Plain text body")
+    send_parser.add_argument("--html", help="HTML body")
+    send_parser.add_argument("--cc", help="Comma-separated CC")
+    send_parser.add_argument("--bcc", help="Comma-separated BCC")
+    send_parser.set_defaults(func=cmd_send)
+    
+    # Reply
+    reply_parser = subparsers.add_parser("reply", help="Reply to message")
+    reply_parser.add_argument("--inbox-id", required=True)
+    reply_parser.add_argument("--message-id", required=True)
+    reply_parser.add_argument("--text", help="Reply text")
+    reply_parser.add_argument("--html", help="Reply HTML")
+    reply_parser.add_argument("--reply-all", action="store_true")
+    reply_parser.set_defaults(func=cmd_reply)
+    
+    # Forward
+    fwd_parser = subparsers.add_parser("forward", help="Forward message")
+    fwd_parser.add_argument("--inbox-id", required=True)
+    fwd_parser.add_argument("--message-id", required=True)
+    fwd_parser.add_argument("--to", required=True, help="Comma-separated recipients")
+    fwd_parser.add_argument("--text", help="Additional text")
+    fwd_parser.set_defaults(func=cmd_forward)
+    
+    # Threads
+    thread_parser = subparsers.add_parser("threads", help="Thread operations")
+    thread_sub = thread_parser.add_subparsers(dest="subcommand")
+    
+    thread_list = thread_sub.add_parser("list", help="List threads")
+    thread_list.add_argument("--inbox-id", required=True)
+    thread_list.add_argument("--limit", type=int, default=50)
+    thread_list.set_defaults(func=cmd_threads_list)
+    
+    thread_get = thread_sub.add_parser("get", help="Get thread")
+    thread_get.add_argument("--inbox-id", required=True)
+    thread_get.add_argument("--thread-id", required=True)
+    thread_get.set_defaults(func=cmd_threads_get)
+    
+    # Webhooks
+    wh_parser = subparsers.add_parser("webhooks", help="Webhook operations")
+    wh_sub = wh_parser.add_subparsers(dest="subcommand")
+    
+    wh_list = wh_sub.add_parser("list", help="List webhooks")
+    wh_list.set_defaults(func=cmd_webhooks_list)
+    
+    wh_create = wh_sub.add_parser("create", help="Create webhook")
+    wh_create.add_argument("--url", required=True)
+    wh_create.add_argument("--events", required=True, help="Comma-separated event types")
+    wh_create.set_defaults(func=cmd_webhooks_create)
+    
+    wh_delete = wh_sub.add_parser("delete", help="Delete webhook")
+    wh_delete.add_argument("--webhook-id", required=True)
+    wh_delete.set_defaults(func=cmd_webhooks_delete)
+    
+    # Pods
+    pod_parser = subparsers.add_parser("pods", help="Pod operations")
+    pod_sub = pod_parser.add_subparsers(dest="subcommand")
+    
+    pod_list = pod_sub.add_parser("list", help="List pods")
+    pod_list.set_defaults(func=cmd_pods_list)
+    
+    pod_create = pod_sub.add_parser("create", help="Create pod")
+    pod_create.add_argument("--name", help="Pod name")
+    pod_create.set_defaults(func=cmd_pods_create)
+    
+    # Domains
+    dom_parser = subparsers.add_parser("domains", help="Domain operations")
+    dom_sub = dom_parser.add_subparsers(dest="subcommand")
+    
+    dom_list = dom_sub.add_parser("list", help="List domains")
+    dom_list.set_defaults(func=cmd_domains_list)
+    
+    dom_create = dom_sub.add_parser("create", help="Create domain")
+    dom_create.add_argument("--domain", required=True)
+    dom_create.add_argument("--feedback", action="store_true", help="Enable feedback")
+    dom_create.set_defaults(func=cmd_domains_create)
+    
+    dom_verify = dom_sub.add_parser("verify", help="Verify domain")
+    dom_verify.add_argument("--domain-id", required=True)
+    dom_verify.set_defaults(func=cmd_domains_verify)
+    
+    args = parser.parse_args()
+    
+    if not args.command:
+        parser.print_help()
+        sys.exit(1)
+    
+    if hasattr(args, "func"):
+        try:
+            args.func(args)
+        except ApiError as e:
+            print(f"API Error ({e.status_code}): {e.body}", file=sys.stderr)
+            sys.exit(1)
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
