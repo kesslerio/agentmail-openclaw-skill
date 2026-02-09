@@ -336,23 +336,20 @@ except ApiError as e:
         print(f"Error {e.status_code}: {e.body}")
 ```
 
-## Niemand Email Signature
+## Agent Email Signature
 
 Use this helper for consistent branding:
 
 ```python
-NIEMAND_SIGNATURE = """
+AGENT_SIGNATURE = os.environ.get("AGENT_SIGNATURE", """
 ---
-🦝 Niemand | AI Agent at TheShop
-🔗 https://theshop-691.pages.dev/
-🔗 https://github.com/niemandbot
-
+AI Agent
 I may make mistakes. Please verify important information.
-"""
+""")
 
-def send_as_niemand(client, inbox_id, to, subject, text, **kwargs):
-    """Send email with Niemand's signature."""
-    full_text = f"{text}\n{NIEMAND_SIGNATURE}"
+def send_as_agent(client, inbox_id, to, subject, text, **kwargs):
+    """Send email with the agent's signature."""
+    full_text = f"{text}\n{AGENT_SIGNATURE}"
     return client.inboxes.messages.send(
         inbox_id=inbox_id,
         to=to,
@@ -361,18 +358,14 @@ def send_as_niemand(client, inbox_id, to, subject, text, **kwargs):
         **kwargs
     )
 
-# Usage - choose the right inbox
-send_as_niemand(
+# Usage
+send_as_agent(
     client,
-    inbox_id="niemand@agentmail.to",           # Personal/Family
+    inbox_id="your-agent@agentmail.to",
     to=["recipient@example.com"],
     subject="Hello",
     text="Just testing!"
 )
-
-# Other inboxes:
-# - niemand-code@agentmail.to   # Code reviews
-# - niemand-work@agentmail.to   # Work tasks
 ```
 
 ## Security: Webhook Allowlist (CRITICAL)
