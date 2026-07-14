@@ -341,6 +341,8 @@ except ApiError as e:
 Use this helper for consistent branding:
 
 ```python
+import os
+
 AGENT_SIGNATURE = os.environ.get("AGENT_SIGNATURE", """
 ---
 AI Agent
